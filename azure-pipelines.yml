@@ -1,0 +1,65 @@
+trigger:
+- main
+
+variables:
+  dockerRegistryServiceConnection: 'acr-connection'
+  imageRepository: 'todoapp'
+  containerRegistry: 'udaytodoacr.azurecr.io' # तुझं Login server
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  tag: '$(Build.BuildId)'
+  resourceGroup: 'todo-rg'
+
+stages:
+- stage: Build
+  displayName: Build and push Docker image
+  jobs:
+    - job: Build
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+        - task: Docker@2
+      displayName: Build and push to ACR
+      inputs:
+        command: buildAndPush
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+          latest
+
+- stage: Deploy
+  displayName: Deploy to ACI
+  dependsOn: Build
+  jobs:
+    - job: Deploy
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+        - task: AzureCLI@2
+      displayName: Deploy Container Instance
+      inputs:
+        azureSubscription: 'acr-connection'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          ACR_USERNAME=$(az acr credential show -n udaytodoacr --query username -o tsv)
+          ACR_PASSWORD=$(az acr credential show -n udaytodoacr --query passwords[0].value -o tsv)
+
+          az container create \
+            --resource-group $(resourceGroup) \
+            --name todo-app \
+            --image $(containerRegistry)/$(imageRepository):$(tag) \
+            --dns-name-label todo-app-$RANDOM \
+            --ports 8000 \
+            --cpu 1 --memory 1 \
+            --registry-login-server $(containerRegistry) \
+            --registry-username $ACR_USERNAME \
+            --registry-password $ACR_PASSWORD \
+            --environment-variables DJANGO_DEBUG=False ALLOWED_HOSTS=*
+
+          FQDN=$(az container show -g $(resourceGroup) -n todo-app --query ipAddress.fqdn -o tsv)
+          echo "========================================"
+          echo "App URL: http://$FQDN:8000"
+          echo "========================================"
+
