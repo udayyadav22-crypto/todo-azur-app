@@ -17,13 +17,21 @@ stages:
   jobs:
   - job: Build
     steps:
-    - task: Docker@2
+    - task: AzureCLI@2
+      displayName: 'Build and Push Docker Image using existing ARM connection'
       inputs:
-        containerRegistry: 'acr-connection'
-        repository: '$(imageName)'
-        command: 'buildAndPush'
-        Dockerfile: '**/Dockerfile'
-        tags: 'latest'
+        azureSubscription: 'acr-connection'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "ACR मध्ये लॉगिन करत आहे..."
+          az acr login --name $(acrName)
+          
+          echo "डॉकर इमेज बनवत आहे..."
+          docker build -t $(acrName).azurecr.io/$(imageName):latest .
+          
+          echo "डॉकर इमेज ACR मध्ये पुश करत आहे..."
+          docker push $(acrName).azurecr.io/$(imageName):latest
 
 - stage: Deploy
   dependsOn: Build
@@ -31,6 +39,7 @@ stages:
   - job: Deploy
     steps:
     - task: AzureCLI@2
+      displayName: 'Deploy to Azure Container Instances'
       inputs:
         azureSubscription: 'acr-connection'
         scriptType: 'bash'
