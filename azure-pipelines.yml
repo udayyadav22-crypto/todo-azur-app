@@ -55,4 +55,3 @@ stages:
           echo "========================================"
           echo "App URL: http://$(az container show --resource-group $(resourceGroup) --name $(containerInstanceName) --query ipAddress.fqdn -o tsv):$(port)"
           echo "========================================"
-
