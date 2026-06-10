@@ -7,7 +7,7 @@ pool:
 variables:
   acrName: 'udaytodoacr'
   resourceGroup: 'todo-rg'
-  containerInstanceName: 'todo-app'
+  containerInstanceName: 'todo-app-$(Build.BuildId)' # Fixed: Unique नाव
   location: 'centralindia'
   imageName: 'todoapp'
   port: '8000'
@@ -15,10 +15,10 @@ variables:
 stages:
 - stage: Build
   jobs:
-  - job: Build
+    - job: Build
     steps:
-    - task: AzureCLI@2
-      displayName: 'Build and Push Docker Image using existing ARM connection'
+        - task: AzureCLI@2
+      displayName: 'Build and Push Docker Image'
       inputs:
         azureSubscription: 'acr-connection'
         scriptType: 'bash'
@@ -26,19 +26,19 @@ stages:
         inlineScript: |
           echo "ACR मध्ये लॉगिन करत आहे..."
           az acr login --name $(acrName)
-          
+
           echo "डॉकर इमेज बनवत आहे..."
-          docker build -t $(acrName).azurecr.io/$(imageName):latest .
-          
+          docker build -t $(acrName).azurecr.io/$(imageName):latest.
+
           echo "डॉकर इमेज ACR मध्ये पुश करत आहे..."
           docker push $(acrName).azurecr.io/$(imageName):latest
 
 - stage: Deploy
   dependsOn: Build
   jobs:
-  - job: Deploy
+    - job: Deploy
     steps:
-    - task: AzureCLI@2
+        - task: AzureCLI@2
       displayName: 'Deploy to Azure Container Instances'
       inputs:
         azureSubscription: 'acr-connection'
@@ -47,7 +47,11 @@ stages:
         inlineScript: |
           az acr update -n $(acrName) -g $(resourceGroup) --admin-enabled true
           ACR_PASSWORD=$(az acr credential show -n $(acrName) --query "passwords[0].value" -o tsv)
-          az container delete --name $(containerInstanceName) --resource-group $(resourceGroup) --yes || true
+
+          echo "जुने Container Delete करत आहे..."
+          az container list -g $(resourceGroup) --query "[?starts_with(name, 'todo-app-')].name" -o tsv | xargs -I {} az container delete --name {} --resource-group $(resourceGroup) --yes || true
+
+          echo "नवीन Container बनवत आहे: $(containerInstanceName)"
           az container create \
             --resource-group $(resourceGroup) \
             --name $(containerInstanceName) \
@@ -55,12 +59,15 @@ stages:
             --registry-login-server $(acrName).azurecr.io \
             --registry-username $(acrName) \
             --registry-password $ACR_PASSWORD \
-            --dns-name-label $(containerInstanceName)-$RANDOM \
+            --dns-name-label $(containerInstanceName) \
             --ports $(port) \
             --location $(location) \
             --os-type Linux \
             --cpu 1 \
-            --memory 1.5
+            --memory 1.5 \
+            --restart-policy Always
+
           echo "========================================"
-          echo "App URL: http://$(az container show --resource-group $(resourceGroup) --name $(containerInstanceName) --query ipAddress.fqdn -o tsv):$(port)"
+          FQDN=$(az container show --resource-group $(resourceGroup) --name $(containerInstanceName) --query ipAddress.fqdn -o tsv)
+          echo "App URL: http://$FQDN:$(port)"
           echo "========================================"
