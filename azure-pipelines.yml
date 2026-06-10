@@ -15,9 +15,9 @@ variables:
 stages:
 - stage: Build
   jobs:
-    - job: Build
+  - job: Build
     steps:
-        - task: Docker@2
+    - task: Docker@2
       inputs:
         containerRegistry: 'acr-connection'
         repository: '$(imageName)'
@@ -28,9 +28,9 @@ stages:
 - stage: Deploy
   dependsOn: Build
   jobs:
-    - job: Deploy
+  - job: Deploy
     steps:
-        - task: AzureCLI@2
+    - task: AzureCLI@2
       inputs:
         azureSubscription: 'acr-connection'
         scriptType: 'bash'
