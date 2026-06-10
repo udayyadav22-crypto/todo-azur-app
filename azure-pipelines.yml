@@ -1,65 +1,58 @@
 trigger:
 - main
 
+pool:
+  vmImage: 'ubuntu-latest'
+
 variables:
-  dockerRegistryServiceConnection: 'acr-connection'
-  imageRepository: 'todoapp'
-  containerRegistry: 'udaytodoacr.azurecr.io' # तुझं Login server
-  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
-  tag: '$(Build.BuildId)'
+  acrName: 'udaytodoacr'
   resourceGroup: 'todo-rg'
+  containerInstanceName: 'todo-app'
+  location: 'centralindia'
+  imageName: 'todoapp'
+  port: '8000'
 
 stages:
 - stage: Build
-  displayName: Build and push Docker image
   jobs:
     - job: Build
-    pool:
-      vmImage: 'ubuntu-latest'
     steps:
         - task: Docker@2
-      displayName: Build and push to ACR
       inputs:
-        command: buildAndPush
-        repository: $(imageRepository)
-        dockerfile: $(dockerfilePath)
-        containerRegistry: $(dockerRegistryServiceConnection)
-        tags: |
-          $(tag)
-          latest
+        containerRegistry: 'acr-connection'
+        repository: '$(imageName)'
+        command: 'buildAndPush'
+        Dockerfile: '**/Dockerfile'
+        tags: 'latest'
 
 - stage: Deploy
-  displayName: Deploy to ACI
   dependsOn: Build
   jobs:
     - job: Deploy
-    pool:
-      vmImage: 'ubuntu-latest'
     steps:
         - task: AzureCLI@2
-      displayName: Deploy Container Instance
       inputs:
         azureSubscription: 'acr-connection'
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          ACR_USERNAME=$(az acr credential show -n udaytodoacr --query username -o tsv)
-          ACR_PASSWORD=$(az acr credential show -n udaytodoacr --query passwords[0].value -o tsv)
-
+          az acr update -n $(acrName) -g $(resourceGroup) --admin-enabled true
+          ACR_PASSWORD=$(az acr credential show -n $(acrName) --query "passwords[0].value" -o tsv)
+          az container delete --name $(containerInstanceName) --resource-group $(resourceGroup) --yes || true
           az container create \
             --resource-group $(resourceGroup) \
-            --name todo-app \
-            --image $(containerRegistry)/$(imageRepository):$(tag) \
-            --dns-name-label todo-app-$RANDOM \
-            --ports 8000 \
-            --cpu 1 --memory 1 \
-            --registry-login-server $(containerRegistry) \
-            --registry-username $ACR_USERNAME \
+            --name $(containerInstanceName) \
+            --image $(acrName).azurecr.io/$(imageName):latest \
+            --registry-login-server $(acrName).azurecr.io \
+            --registry-username $(acrName) \
             --registry-password $ACR_PASSWORD \
-            --environment-variables DJANGO_DEBUG=False ALLOWED_HOSTS=*
-
-          FQDN=$(az container show -g $(resourceGroup) -n todo-app --query ipAddress.fqdn -o tsv)
+            --dns-name-label $(containerInstanceName)-$RANDOM \
+            --ports $(port) \
+            --location $(location) \
+            --os-type Linux \
+            --cpu 1 \
+            --memory 1.5
           echo "========================================"
-          echo "App URL: http://$FQDN:8000"
+          echo "App URL: http://$(az container show --resource-group $(resourceGroup) --name $(containerInstanceName) --query ipAddress.fqdn -o tsv):$(port)"
           echo "========================================"
 
