@@ -7,7 +7,7 @@ pool:
 variables:
   acrName: 'udaytodoacr'
   resourceGroup: 'todo-rg'
-  containerInstanceName: 'todo-app-$(Build.BuildId)' # Fixed: Unique नाव
+  containerInstanceName: 'todo-app-$(Build.BuildId)'
   location: 'centralindia'
   imageName: 'todoapp'
   port: '8000'
@@ -26,10 +26,10 @@ stages:
         inlineScript: |
           echo "ACR मध्ये लॉगिन करत आहे..."
           az acr login --name $(acrName)
-
+          
           echo "डॉकर इमेज बनवत आहे..."
-          docker build -t $(acrName).azurecr.io/$(imageName):latest.
-
+          docker build -t $(acrName).azurecr.io/$(imageName):latest .
+          
           echo "डॉकर इमेज ACR मध्ये पुश करत आहे..."
           docker push $(acrName).azurecr.io/$(imageName):latest
 
@@ -47,27 +47,3 @@ stages:
         inlineScript: |
           az acr update -n $(acrName) -g $(resourceGroup) --admin-enabled true
           ACR_PASSWORD=$(az acr credential show -n $(acrName) --query "passwords[0].value" -o tsv)
-
-          echo "जुने Container Delete करत आहे..."
-          az container list -g $(resourceGroup) --query "[?starts_with(name, 'todo-app-')].name" -o tsv | xargs -I {} az container delete --name {} --resource-group $(resourceGroup) --yes || true
-
-          echo "नवीन Container बनवत आहे: $(containerInstanceName)"
-          az container create \
-            --resource-group $(resourceGroup) \
-            --name $(containerInstanceName) \
-            --image $(acrName).azurecr.io/$(imageName):latest \
-            --registry-login-server $(acrName).azurecr.io \
-            --registry-username $(acrName) \
-            --registry-password $ACR_PASSWORD \
-            --dns-name-label $(containerInstanceName) \
-            --ports $(port) \
-            --location $(location) \
-            --os-type Linux \
-            --cpu 1 \
-            --memory 1.5 \
-            --restart-policy Always
-
-          echo "========================================"
-          FQDN=$(az container show --resource-group $(resourceGroup) --name $(containerInstanceName) --query ipAddress.fqdn -o tsv)
-          echo "App URL: http://$FQDN:$(port)"
-          echo "========================================"
